@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
   - name: Security policy
-    url: https://github.com/ceratops-private/codex-silent-threads-patch/blob/main/SECURITY.md
+    url: https://github.com/ceratops-code/codex-silent-threads-patch/blob/main/SECURITY.md
     about: Review the security policy before reporting sensitive issues.
