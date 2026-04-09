@@ -1,0 +1,4 @@
+# Default repository ownership.
+# Replace @roman with an org team if the target repo uses one.
+* @roman
+/.github/ @roman

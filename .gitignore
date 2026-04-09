@@ -1,0 +1,7 @@
+*.bak
+*.tmp
+out/
+tmp/
+.DS_Store
+Thumbs.db
+.vscode/
