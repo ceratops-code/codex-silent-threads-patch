@@ -10,10 +10,10 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $settingsPath = Join-Path $repoRoot 'PSScriptAnalyzerSettings.psd1'
 $resolvedOutputPath =
   if ([System.IO.Path]::IsPathRooted($OutputPath)) {
-    $OutputPath
+    [System.IO.Path]::GetFullPath($OutputPath)
   }
   else {
-    Join-Path $repoRoot $OutputPath
+    [System.IO.Path]::GetFullPath((Join-Path $repoRoot $OutputPath))
   }
 
 Import-Module PSScriptAnalyzer -ErrorAction Stop
@@ -110,5 +110,9 @@ if ($outputDirectory -and -not (Test-Path -LiteralPath $outputDirectory)) {
   New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
 }
 
-$sarif | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $resolvedOutputPath -Encoding utf8
+[System.IO.File]::WriteAllText(
+  $resolvedOutputPath,
+  ($sarif | ConvertTo-Json -Depth 100),
+  (New-Object System.Text.UTF8Encoding($false))
+)
 Write-Output $resolvedOutputPath
