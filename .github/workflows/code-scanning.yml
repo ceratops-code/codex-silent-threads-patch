@@ -1,0 +1,36 @@
+name: Code Scanning
+
+on:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: '23 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  psscriptanalyzer:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install PSScriptAnalyzer
+        shell: powershell
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force
+          Install-Module -Name PSScriptAnalyzer -Scope CurrentUser -Force -Repository PSGallery
+
+      - name: Generate SARIF
+        shell: powershell
+        run: .\scripts\Write-PSScriptAnalyzerSarif.ps1 -OutputPath .\artifacts\psscriptanalyzer.sarif
+
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: .\artifacts\psscriptanalyzer.sarif
