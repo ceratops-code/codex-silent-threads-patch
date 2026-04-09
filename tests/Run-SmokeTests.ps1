@@ -84,7 +84,7 @@ Response MUST end with a remark-directive block.
   $secondResult = Write-CodexPatchedAsar -InputAsarPath $patchedPath -OutputAsarPath $patchedAgainPath
   Assert-True -Condition ($secondResult.Status -eq 'AlreadyPatched') -Message 'Expected a second patch pass to be idempotent.'
 
-  Write-Host 'Smoke tests passed.'
+  Write-Output 'Smoke tests passed.'
 }
 finally {
   Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue

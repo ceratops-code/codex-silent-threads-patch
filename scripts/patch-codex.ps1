@@ -17,8 +17,15 @@ function Test-IsAdministrator {
   return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
-function Stop-CodexProcesses {
-  Get-Process Codex, codex -ErrorAction SilentlyContinue | Stop-Process -Force
+function Stop-CodexProcess {
+  [CmdletBinding(SupportsShouldProcess)]
+  param()
+
+  Get-Process Codex, codex -ErrorAction SilentlyContinue | ForEach-Object {
+    if ($PSCmdlet.ShouldProcess($_.ProcessName, 'Stop process')) {
+      $_ | Stop-Process -Force
+    }
+  }
 }
 
 if (-not $AsarPath) {
@@ -39,7 +46,7 @@ if ($StopCodex) {
     throw 'Stopping the installed Codex processes requires an elevated PowerShell session.'
   }
 
-  Stop-CodexProcesses
+  Stop-CodexProcess -Confirm:$false
 }
 
 $inPlace = -not $OutputPath

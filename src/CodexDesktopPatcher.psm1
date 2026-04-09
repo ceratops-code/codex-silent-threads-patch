@@ -33,11 +33,7 @@ function Add-OrSetNoteProperty {
   $property.Value = $Value
 }
 
-function New-PlainObject {
-  return New-Object psobject
-}
-
-function Align-4 {
+function Get-FourByteAlignedValue {
   param(
     [Parameter(Mandatory = $true)]
     [int]$Value
@@ -46,7 +42,7 @@ function Align-4 {
   return [int]([Math]::Ceiling($Value / 4.0) * 4)
 }
 
-function Get-ByteSlice {
+function Get-ByteRange {
   param(
     [Parameter(Mandatory = $true)]
     [byte[]]$Bytes,
@@ -63,7 +59,7 @@ function Get-ByteSlice {
   return ,$slice
 }
 
-function New-AsarIntegrity {
+function Get-AsarIntegrity {
   param(
     [Parameter(Mandatory = $true)]
     [AllowEmptyCollection()]
@@ -79,7 +75,7 @@ function New-AsarIntegrity {
 
     for ($index = 0; $index -lt $Content.Length; $index += $BlockSize) {
       $count = [Math]::Min($BlockSize, $Content.Length - $index)
-      $block = Get-ByteSlice -Bytes $Content -Offset $index -Length $count
+      $block = Get-ByteRange -Bytes $Content -Offset $index -Length $count
       $blocks += [BitConverter]::ToString($hasher.ComputeHash($block)).Replace('-', '').ToLowerInvariant()
     }
 
@@ -95,7 +91,7 @@ function New-AsarIntegrity {
   }
 }
 
-function New-FileEntryObject {
+function Get-AsarFileEntryObject {
   param(
     [Parameter(Mandatory = $true)]
     [AllowEmptyCollection()]
@@ -105,11 +101,11 @@ function New-FileEntryObject {
   return [pscustomobject]@{
     size      = $Content.Length
     offset    = '0'
-    integrity = (New-AsarIntegrity -Content $Content)
+    integrity = (Get-AsarIntegrity -Content $Content)
   }
 }
 
-function Ensure-DirectoryFilesNode {
+function Resolve-DirectoryFilesNode {
   param(
     [Parameter(Mandatory = $true)]
     [object]$ParentFilesNode,
@@ -124,21 +120,21 @@ function Ensure-DirectoryFilesNode {
   }
 
   $directoryEntry = [pscustomobject]@{
-    files = (New-PlainObject)
+    files = (New-Object psobject)
   }
 
   Add-Member -InputObject $ParentFilesNode -NotePropertyName $Name -NotePropertyValue $directoryEntry
   return $directoryEntry.files
 }
 
-function New-AsarHeaderFromFileMap {
+function Get-AsarHeaderFromFileMap {
   param(
     [Parameter(Mandatory = $true)]
     [hashtable]$Files
   )
 
   $root = [pscustomobject]@{
-    files = (New-PlainObject)
+    files = (New-Object psobject)
   }
 
   foreach ($path in ($Files.Keys | Sort-Object)) {
@@ -149,7 +145,7 @@ function New-AsarHeaderFromFileMap {
 
     $cursor = $root.files
     for ($index = 0; $index -lt ($segments.Count - 1); $index++) {
-      $cursor = Ensure-DirectoryFilesNode -ParentFilesNode $cursor -Name $segments[$index]
+      $cursor = Resolve-DirectoryFilesNode -ParentFilesNode $cursor -Name $segments[$index]
     }
 
     $leaf = $segments[$segments.Count - 1]
@@ -162,13 +158,13 @@ function New-AsarHeaderFromFileMap {
         [System.Text.Encoding]::UTF8.GetBytes([string]$value)
       }
 
-    Add-Member -InputObject $cursor -NotePropertyName $leaf -NotePropertyValue (New-FileEntryObject -Content $content)
+    Add-Member -InputObject $cursor -NotePropertyName $leaf -NotePropertyValue (Get-AsarFileEntryObject -Content $content)
   }
 
   return $root
 }
 
-function Get-AsarFileEntries {
+function Get-AsarFileEntry {
   param(
     [Parameter(Mandatory = $true)]
     [object]$FilesNode,
@@ -178,7 +174,7 @@ function Get-AsarFileEntries {
 
   $results = New-Object 'System.Collections.Generic.List[object]'
 
-  function Add-AsarEntries {
+  function Add-AsarEntry {
     param(
       [Parameter(Mandatory = $true)]
       [object]$Node,
@@ -198,7 +194,7 @@ function Get-AsarFileEntries {
       $entry = $property.Value
 
       if (Test-HasProperty -InputObject $entry -Name 'files') {
-        Add-AsarEntries -Node $entry.files -NodePrefix $entryPath
+        Add-AsarEntry -Node $entry.files -NodePrefix $entryPath
         continue
       }
 
@@ -213,7 +209,7 @@ function Get-AsarFileEntries {
     }
   }
 
-  Add-AsarEntries -Node $FilesNode -NodePrefix $Prefix
+  Add-AsarEntry -Node $FilesNode -NodePrefix $Prefix
   return $results.ToArray()
 }
 
@@ -250,14 +246,14 @@ function Get-AsarFileContent {
     [string]$Path
   )
 
-  $match = Get-AsarFileEntries -FilesNode $Archive.Header.files | Where-Object { $_.Path -eq $Path } | Select-Object -First 1
+  $match = Get-AsarFileEntry -FilesNode $Archive.Header.files | Where-Object { $_.Path -eq $Path } | Select-Object -First 1
   if ($null -eq $match) {
     throw "Archive entry not found: $Path"
   }
 
   $offset = [int]$match.Entry.offset
   $length = [int]$match.Entry.size
-  return Get-ByteSlice -Bytes $Archive.Bytes -Offset ($Archive.DataOffset + $offset) -Length $length
+  return Get-ByteRange -Bytes $Archive.Bytes -Offset ($Archive.DataOffset + $offset) -Length $length
 }
 
 function Write-AsarArchive {
@@ -275,7 +271,7 @@ function Write-AsarArchive {
   $headerJson = ConvertTo-Json -InputObject $Header -Compress -Depth 100
   $headerBytes = [System.Text.Encoding]::UTF8.GetBytes($headerJson)
   $headerJsonLength = $headerBytes.Length
-  $headerPayloadLength = Align-4 -Value ($headerJsonLength + 4)
+  $headerPayloadLength = Get-FourByteAlignedValue -Value ($headerJsonLength + 4)
   $headerPickleLength = $headerPayloadLength + 4
 
   $directory = Split-Path -Parent $Path
@@ -317,8 +313,8 @@ function Write-AsarArchiveFromMap {
     [string]$Path
   )
 
-  $header = New-AsarHeaderFromFileMap -Files $Files
-  $entries = Get-AsarFileEntries -FilesNode $header.files
+  $header = Get-AsarHeaderFromFileMap -Files $Files
+  $entries = Get-AsarFileEntry -FilesNode $header.files
   $payloads = @()
   $currentOffset = 0
 
@@ -334,7 +330,7 @@ function Write-AsarArchiveFromMap {
 
     $entryInfo.Entry.size = $content.Length
     $entryInfo.Entry.offset = [string]$currentOffset
-    $entryInfo.Entry.integrity = New-AsarIntegrity -Content $content
+    $entryInfo.Entry.integrity = Get-AsarIntegrity -Content $content
     $payloads += ,$content
     $currentOffset += $content.Length
   }
@@ -396,7 +392,7 @@ function Find-UnescapedBacktickForward {
   return -1
 }
 
-function New-PatchedAutomationTemplateSource {
+function Get-PatchedAutomationTemplateSource {
   $template = @'
 Response must follow the active automation prompt and applicable AGENTS instructions.
 
@@ -426,7 +422,7 @@ Response must follow the active automation prompt and applicable AGENTS instruct
   return ($escaped -replace "`r?`n", "\r`n") + "\r`n"
 }
 
-function Update-CodexAutomationDeveloperInstructions {
+function Get-CodexAutomationDeveloperInstructionPatchResult {
   param(
     [Parameter(Mandatory = $true)]
     [string]$SourceText
@@ -456,7 +452,7 @@ function Update-CodexAutomationDeveloperInstructions {
     throw 'Could not locate the closing template literal for the Codex automation instruction block.'
   }
 
-  $replacement = New-PatchedAutomationTemplateSource
+  $replacement = Get-PatchedAutomationTemplateSource
   $suffix = $SourceText.Substring($closeBacktick)
   $paddingLength = $SourceText.Length - (($openBacktick + 1) + $replacement.Length + $suffix.Length)
 
@@ -489,7 +485,7 @@ function Write-UpdatedAsarFromArchive {
     [string]$OutputPath
   )
 
-  $entries = Get-AsarFileEntries -FilesNode $Archive.Header.files
+  $entries = Get-AsarFileEntry -FilesNode $Archive.Header.files
   $currentOffset = 0
 
   foreach ($entryInfo in $entries) {
@@ -505,7 +501,7 @@ function Write-UpdatedAsarFromArchive {
     $entryInfo.Entry.offset = [string]$currentOffset
 
     if ((Test-HasProperty -InputObject $entryInfo.Entry -Name 'integrity') -and ($entryInfo.Path -eq $TargetPath)) {
-      $entryInfo.Entry.integrity = New-AsarIntegrity -Content $ReplacementContent
+      $entryInfo.Entry.integrity = Get-AsarIntegrity -Content $ReplacementContent
     }
 
     $currentOffset += $contentLength
@@ -514,7 +510,7 @@ function Write-UpdatedAsarFromArchive {
   $headerJson = ConvertTo-Json -InputObject $Archive.Header -Compress -Depth 100
   $headerBytes = [System.Text.Encoding]::UTF8.GetBytes($headerJson)
   $headerJsonLength = $headerBytes.Length
-  $headerPayloadLength = Align-4 -Value ($headerJsonLength + 4)
+  $headerPayloadLength = Get-FourByteAlignedValue -Value ($headerJsonLength + 4)
   $headerPickleLength = $headerPayloadLength + 4
   $paddingLength = $headerPayloadLength - 4 - $headerJsonLength
 
@@ -543,7 +539,7 @@ function Write-UpdatedAsarFromArchive {
           $ReplacementContent
         }
         else {
-          Get-ByteSlice -Bytes $Archive.Bytes -Offset ($Archive.DataOffset + $entryInfo.OriginalOffset) -Length $entryInfo.OriginalSize
+          Get-ByteRange -Bytes $Archive.Bytes -Offset ($Archive.DataOffset + $entryInfo.OriginalOffset) -Length $entryInfo.OriginalSize
         }
 
       if ($content.Length -gt 0) {
@@ -567,12 +563,12 @@ function Write-CodexPatchedAsar {
   )
 
   $archive = Read-AsarArchive -Path $InputAsarPath
-  $entries = Get-AsarFileEntries -FilesNode $archive.Header.files
+  $entries = Get-AsarFileEntry -FilesNode $archive.Header.files
   $targetEntry = $null
   $targetText = $null
 
   foreach ($entryInfo in $entries | Where-Object { $_.Path -like '.vite/build/main-*.js' }) {
-    $contentBytes = Get-ByteSlice -Bytes $archive.Bytes -Offset ($archive.DataOffset + [int]$entryInfo.Entry.offset) -Length ([int]$entryInfo.Entry.size)
+    $contentBytes = Get-ByteRange -Bytes $archive.Bytes -Offset ($archive.DataOffset + [int]$entryInfo.Entry.offset) -Length ([int]$entryInfo.Entry.size)
     $candidateText = [System.Text.Encoding]::UTF8.GetString($contentBytes)
 
     if ($candidateText.Contains('Response MUST end with a remark-directive block.') -or $candidateText.Contains('Return a remark directive only when the active automation prompt or applicable AGENTS requires user-visible output.')) {
@@ -586,7 +582,7 @@ function Write-CodexPatchedAsar {
     throw 'Could not find the Codex main bundle containing the automation developer-instruction template.'
   }
 
-  $patchResult = Update-CodexAutomationDeveloperInstructions -SourceText $targetText
+  $patchResult = Get-CodexAutomationDeveloperInstructionPatchResult -SourceText $targetText
 
   if ($patchResult.Status -eq 'AlreadyPatched') {
     if ([System.IO.Path]::GetFullPath($InputAsarPath) -ne [System.IO.Path]::GetFullPath($OutputAsarPath)) {
@@ -605,7 +601,7 @@ function Write-CodexPatchedAsar {
   $fastPathUsed = $false
 
   if ($replacementBytes.Length -eq $targetEntry.OriginalSize) {
-    $targetEntry.Entry.integrity = New-AsarIntegrity -Content $replacementBytes
+    $targetEntry.Entry.integrity = Get-AsarIntegrity -Content $replacementBytes
     $updatedHeaderJson = ConvertTo-Json -InputObject $archive.Header -Compress -Depth 100
     $updatedHeaderBytes = [System.Text.Encoding]::UTF8.GetBytes($updatedHeaderJson)
 

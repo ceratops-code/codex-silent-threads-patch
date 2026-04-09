@@ -9,6 +9,12 @@
 
 ## Local Checks
 
+Run the linter:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tests\Run-Lint.ps1
+```
+
 Run the smoke test:
 
 ```powershell

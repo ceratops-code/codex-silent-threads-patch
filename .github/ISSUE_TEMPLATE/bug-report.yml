@@ -1,0 +1,34 @@
+name: Bug report
+description: Report a reproducible problem in the patcher or its workflows.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Describe the problem and the expected behavior.
+    validations:
+      required: true
+  - type: input
+    id: codex-version
+    attributes:
+      label: Codex version
+      description: Include the installed `OpenAI.Codex_*` package version if known.
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: List the exact commands and steps needed to reproduce the issue.
+      placeholder: |
+        1. Run ...
+        2. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant output
+      description: Paste errors, logs, or screenshots that help explain the failure.
+      render: powershell
