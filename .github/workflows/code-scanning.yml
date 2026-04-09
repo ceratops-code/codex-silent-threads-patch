@@ -17,7 +17,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install PSScriptAnalyzer
         shell: powershell
@@ -31,6 +31,6 @@ jobs:
         run: .\scripts\Write-PSScriptAnalyzerSarif.ps1 -OutputPath .\artifacts\psscriptanalyzer.sarif
 
       - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: .\artifacts\psscriptanalyzer.sarif
