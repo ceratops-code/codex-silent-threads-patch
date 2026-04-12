@@ -1,6 +1,6 @@
 @{
   RootModule        = 'CodexDesktopPatcher.psm1'
-  ModuleVersion     = '0.1.1'
+  ModuleVersion     = '0.1.2'
   GUID              = '14d52131-c0be-4f1c-aa31-d30434d1a5db'
   Author            = 'RomanOstr'
   CompanyName       = 'RomanOstr'
