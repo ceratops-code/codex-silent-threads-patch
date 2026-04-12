@@ -10,15 +10,32 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'src\CodexDesktopPatcher.psd1') -Force
+. (Join-Path $PSScriptRoot 'PatcherScriptSupport.ps1')
 
-function Test-IsAdministrator {
-  $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-  $principal = New-Object Security.Principal.WindowsPrincipal($identity)
-  return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+function Get-RestoreReinvokeArgumentList {
+  $arguments = @()
+
+  if ($AsarPath) {
+    $arguments += @('-AsarPath', (ConvertTo-ProcessArgument -Value $AsarPath))
+  }
+
+  if ($BackupPath) {
+    $arguments += @('-BackupPath', (ConvertTo-ProcessArgument -Value $BackupPath))
+  }
+
+  if ($BackupDirectory) {
+    $arguments += @('-BackupDirectory', (ConvertTo-ProcessArgument -Value $BackupDirectory))
+  }
+
+  if ($StopCodex.IsPresent) {
+    $arguments += '-StopCodex'
+  }
+
+  return $arguments
 }
 
 if (-not (Test-IsAdministrator)) {
-  throw 'Restoring the installed Codex app requires an elevated PowerShell session.'
+  Start-ScriptElevated -ScriptPath $PSCommandPath -ArgumentList (Get-RestoreReinvokeArgumentList)
 }
 
 if (-not $AsarPath) {

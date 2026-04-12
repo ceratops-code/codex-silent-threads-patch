@@ -6,12 +6,12 @@ This repo is self-contained. It uses PowerShell only. It does not require `node`
 
 ## What It Does
 
-- Finds the installed `OpenAI.Codex_*` Windows package.
+- Finds the installed `OpenAI.Codex_*` Windows package through AppX metadata, with process and filesystem fallbacks.
 - Backs up the current `app.asar`.
 - Reads and rebuilds the `asar` archive directly in PowerShell.
 - Patches the embedded runtime bundles by replacing the hard-coded automation developer-instruction template and app-context inbox guidance.
 - Restores from backup if needed.
-- Optionally registers an elevated scheduled task to re-run the patch automatically after updates.
+- Optionally registers a scheduled task to re-run the patch automatically after updates.
 
 ## How It Works
 
@@ -26,7 +26,7 @@ The patcher fails safe. If the expected anchor text is not found in a new Codex 
 ## Requirements
 
 - Windows
-- Elevated PowerShell for in-place patching of the installed app under `C:\Program Files\WindowsApps`
+- UAC approval when patching, restoring, or registering the autopatch task for the installed app under `C:\Program Files\WindowsApps`
 
 ## Usage
 
@@ -35,6 +35,8 @@ Patch the installed Codex app in place:
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\patch-codex.ps1 -StopCodex
 ```
+
+If the command is not already elevated, it relaunches itself and asks for UAC approval.
 
 Patch a copied `app.asar` to another output file:
 
@@ -48,7 +50,7 @@ Restore the latest backup:
 powershell -ExecutionPolicy Bypass -File .\scripts\restore-codex.ps1 -StopCodex
 ```
 
-Install the optional autopatch scheduled task from elevated PowerShell:
+Install the optional autopatch scheduled task:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\install-autopatch-task.ps1
@@ -92,6 +94,7 @@ powershell -ExecutionPolicy Bypass -File .\tests\Run-SmokeTests.ps1
 
 - `src/CodexDesktopPatcher.psd1`: module manifest and public export surface
 - `src/CodexDesktopPatcher.psm1`: core `asar` reader, writer, patch logic, backup, restore, and scheduled-task helpers
+- `scripts/PatcherScriptSupport.ps1`: shared script helpers for UAC elevation and argument forwarding
 - `scripts/patch-codex.ps1`: patch entrypoint
 - `scripts/restore-codex.ps1`: restore entrypoint
 - `scripts/install-autopatch-task.ps1`: register the scheduled repatch task
