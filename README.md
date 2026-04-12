@@ -9,13 +9,13 @@ This repo is self-contained. It uses PowerShell only. It does not require `node`
 - Finds the installed `OpenAI.Codex_*` Windows package.
 - Backs up the current `app.asar`.
 - Reads and rebuilds the `asar` archive directly in PowerShell.
-- Patches the embedded `main-*.js` bundle by replacing the hard-coded automation developer-instruction template.
+- Patches the embedded runtime bundles by replacing the hard-coded automation developer-instruction template and app-context inbox guidance.
 - Restores from backup if needed.
 - Optionally registers an elevated scheduled task to re-run the patch automatically after updates.
 
 ## How It Works
 
-The patcher targets the Codex automation developer-instruction template inside the Electron app bundle. It replaces the template so future automation runs:
+The patcher targets the Codex automation developer-instruction template and app-context automation guidance inside the Electron app bundle. It replaces the forced-output text so future automation runs:
 
 - follow the active automation prompt and applicable `AGENTS.md` files for memory handling, silent-run policy, conflict reporting, and completion gates
 - stop forcing an inbox item for every automation response
@@ -48,7 +48,7 @@ Restore the latest backup:
 powershell -ExecutionPolicy Bypass -File .\scripts\restore-codex.ps1 -StopCodex
 ```
 
-Install the optional autopatch scheduled task:
+Install the optional autopatch scheduled task from elevated PowerShell:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\install-autopatch-task.ps1
@@ -84,8 +84,8 @@ powershell -ExecutionPolicy Bypass -File .\tests\Run-SmokeTests.ps1
 
 ## Limitations
 
-- The patcher is intentionally narrow. It patches one known automation instruction template.
-- If OpenAI changes that template substantially, the patcher will stop until the anchors are updated here.
+- The patcher is intentionally narrow. It patches known automation instruction and app-context anchors.
+- If OpenAI changes those anchors substantially, the patcher will stop until the anchors are updated here.
 - Windows app repairs or updates can replace the patched `app.asar`. Re-run the patch or let the scheduled task re-apply it.
 
 ## Repository Layout

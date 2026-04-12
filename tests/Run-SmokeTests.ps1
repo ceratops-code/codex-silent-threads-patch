@@ -63,10 +63,17 @@ Response MUST end with a remark-directive block.
 '@
 
   $mainSource = 'var ie=`' + (Convert-ToLegacyTemplateLiteralSource -Text $legacyTemplate) + '`;const afterTemplate=42;'
+  $appContextSource = @'
+const automationGuidance = `- When helpful, include clear output expectations.
+- Automations should always open an inbox item.
+- Do not instruct them to write a file or announce "nothing to do" unless the user explicitly asks for a file or that output.`;
+'@
 
   Write-AsarArchiveFromMap -Files @{
-    '.vite/build/main-test.js' = $mainSource
-    'webview/index.html'       = '<html><body>ok</body></html>'
+    '.vite/build/main-test.js'         = $mainSource
+    '.vite/build/product-name-test.js' = $appContextSource
+    '.vite/build/worker.js'            = $appContextSource
+    'webview/index.html'               = '<html><body>ok</body></html>'
   } -Path $fixturePath
 
   $patchResult = Write-CodexPatchedAsar -InputAsarPath $fixturePath -OutputAsarPath $patchedPath
@@ -74,11 +81,17 @@ Response MUST end with a remark-directive block.
 
   $patchedArchive = Read-AsarArchive -Path $patchedPath
   $patchedMain = [System.Text.Encoding]::UTF8.GetString((Get-AsarFileContent -Archive $patchedArchive -Path '.vite/build/main-test.js'))
+  $patchedProduct = [System.Text.Encoding]::UTF8.GetString((Get-AsarFileContent -Archive $patchedArchive -Path '.vite/build/product-name-test.js'))
+  $patchedWorker = [System.Text.Encoding]::UTF8.GetString((Get-AsarFileContent -Archive $patchedArchive -Path '.vite/build/worker.js'))
   $patchedHtml = [System.Text.Encoding]::UTF8.GetString((Get-AsarFileContent -Archive $patchedArchive -Path 'webview/index.html'))
 
   Assert-True -Condition ($patchedMain.Contains('Return a remark directive only when the active automation prompt or applicable AGENTS requires user-visible output.')) -Message 'The patched template anchor was not found.'
   Assert-True -Condition (-not $patchedMain.Contains('Output exactly ONE inbox-item directive.')) -Message 'The forced inbox directive text was not removed.'
   Assert-True -Condition (-not $patchedMain.Contains('use the memory file at `$CODEX_HOME/automations/<automation_id>/memory.md`')) -Message 'The forced memory instruction was not removed.'
+  Assert-True -Condition ($patchedProduct.Contains('Follow prompt/AGENTS for user-visible output.')) -Message 'The product bundle automation app-context guidance was not patched.'
+  Assert-True -Condition ($patchedWorker.Contains('Follow prompt/AGENTS for user-visible output.')) -Message 'The worker bundle automation app-context guidance was not patched.'
+  Assert-True -Condition (-not $patchedProduct.Contains('Automations should always open an inbox item.')) -Message 'The product bundle still forces an inbox item.'
+  Assert-True -Condition (-not $patchedWorker.Contains('Automations should always open an inbox item.')) -Message 'The worker bundle still forces an inbox item.'
   Assert-True -Condition ($patchedHtml -eq '<html><body>ok</body></html>') -Message ("Unrelated archive contents changed unexpectedly. Actual: [{0}]" -f $patchedHtml)
 
   $secondResult = Write-CodexPatchedAsar -InputAsarPath $patchedPath -OutputAsarPath $patchedAgainPath

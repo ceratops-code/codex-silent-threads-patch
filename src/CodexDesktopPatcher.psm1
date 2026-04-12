@@ -470,6 +470,36 @@ function Get-CodexAutomationDeveloperInstructionPatchResult {
   }
 }
 
+function Get-CodexAutomationAppContextPatchResult {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$SourceText
+  )
+
+  $legacyText = '- Automations should always open an inbox item.'
+  $patchedText = '- Follow prompt/AGENTS for user-visible output.'
+  $previousPatchedText = '- Automations should open an inbox item only when the active automation prompt or applicable AGENTS requires user-visible output.'
+
+  if ($SourceText.Contains($patchedText) -or $SourceText.Contains($previousPatchedText)) {
+    return [pscustomobject]@{
+      Status = 'AlreadyPatched'
+      Text   = $SourceText
+    }
+  }
+
+  if (-not $SourceText.Contains($legacyText)) {
+    return [pscustomobject]@{
+      Status = 'NotApplicable'
+      Text   = $SourceText
+    }
+  }
+
+  return [pscustomobject]@{
+    Status = 'Patched'
+    Text   = $SourceText.Replace($legacyText, $patchedText)
+  }
+}
+
 function Write-UpdatedAsarFromArchive {
   param(
     [Parameter(Mandatory = $true)]
@@ -553,6 +583,88 @@ function Write-UpdatedAsarFromArchive {
   }
 }
 
+function Write-UpdatedAsarFromArchiveMap {
+  param(
+    [Parameter(Mandatory = $true)]
+    [object]$Archive,
+
+    [Parameter(Mandatory = $true)]
+    [hashtable]$ReplacementContentByPath,
+
+    [Parameter(Mandatory = $true)]
+    [string]$OutputPath
+  )
+
+  $entries = Get-AsarFileEntry -FilesNode $Archive.Header.files
+  $currentOffset = 0
+
+  foreach ($entryInfo in $entries) {
+    $replacementContent = $ReplacementContentByPath[$entryInfo.Path]
+    $contentLength =
+      if ($null -ne $replacementContent) {
+        $replacementContent.Length
+      }
+      else {
+        $entryInfo.OriginalSize
+      }
+
+    $entryInfo.Entry.size = $contentLength
+    $entryInfo.Entry.offset = [string]$currentOffset
+
+    if ((Test-HasProperty -InputObject $entryInfo.Entry -Name 'integrity') -and ($null -ne $replacementContent)) {
+      $entryInfo.Entry.integrity = Get-AsarIntegrity -Content $replacementContent
+    }
+
+    $currentOffset += $contentLength
+  }
+
+  $headerJson = ConvertTo-Json -InputObject $Archive.Header -Compress -Depth 100
+  $headerBytes = [System.Text.Encoding]::UTF8.GetBytes($headerJson)
+  $headerJsonLength = $headerBytes.Length
+  $headerPayloadLength = Get-FourByteAlignedValue -Value ($headerJsonLength + 4)
+  $headerPickleLength = $headerPayloadLength + 4
+  $paddingLength = $headerPayloadLength - 4 - $headerJsonLength
+
+  $directory = Split-Path -Parent $OutputPath
+  if ($directory -and -not (Test-Path -LiteralPath $directory)) {
+    New-Item -ItemType Directory -Path $directory -Force | Out-Null
+  }
+
+  $stream = [System.IO.File]::Open($OutputPath, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+  $writer = New-Object System.IO.BinaryWriter($stream)
+
+  try {
+    $writer.Write([int]4)
+    $writer.Write([int]$headerPickleLength)
+    $writer.Write([int]$headerPayloadLength)
+    $writer.Write([int]$headerJsonLength)
+    $writer.Write($headerBytes)
+
+    if ($paddingLength -gt 0) {
+      $writer.Write((New-Object byte[] $paddingLength))
+    }
+
+    foreach ($entryInfo in $entries) {
+      $replacementContent = $ReplacementContentByPath[$entryInfo.Path]
+      $content =
+        if ($null -ne $replacementContent) {
+          $replacementContent
+        }
+        else {
+          Get-ByteRange -Bytes $Archive.Bytes -Offset ($Archive.DataOffset + $entryInfo.OriginalOffset) -Length $entryInfo.OriginalSize
+        }
+
+      if ($content.Length -gt 0) {
+        $writer.Write([byte[]]$content)
+      }
+    }
+  }
+  finally {
+    $writer.Dispose()
+    $stream.Dispose()
+  }
+}
+
 function Write-CodexPatchedAsar {
   param(
     [Parameter(Mandatory = $true)]
@@ -564,44 +676,89 @@ function Write-CodexPatchedAsar {
 
   $archive = Read-AsarArchive -Path $InputAsarPath
   $entries = Get-AsarFileEntry -FilesNode $archive.Header.files
-  $targetEntry = $null
-  $targetText = $null
+  $mainEntry = $null
+  $mainTemplateSeen = $false
+  $replacementContentByPath = @{}
+  $bundlePaths = New-Object 'System.Collections.Generic.List[string]'
+  $patchedBundlePaths = New-Object 'System.Collections.Generic.List[string]'
 
   foreach ($entryInfo in $entries | Where-Object { $_.Path -like '.vite/build/main-*.js' }) {
     $contentBytes = Get-ByteRange -Bytes $archive.Bytes -Offset ($archive.DataOffset + [int]$entryInfo.Entry.offset) -Length ([int]$entryInfo.Entry.size)
     $candidateText = [System.Text.Encoding]::UTF8.GetString($contentBytes)
 
     if ($candidateText.Contains('Response MUST end with a remark-directive block.') -or $candidateText.Contains('Return a remark directive only when the active automation prompt or applicable AGENTS requires user-visible output.')) {
-      $targetEntry = $entryInfo
-      $targetText = $candidateText
+      $mainEntry = $entryInfo
+      $mainTemplateSeen = $true
+      $bundlePaths.Add($entryInfo.Path)
+      $patchResult = Get-CodexAutomationDeveloperInstructionPatchResult -SourceText $candidateText
+
+      if ($patchResult.Status -eq 'Patched') {
+        $replacementContentByPath[$entryInfo.Path] = [System.Text.Encoding]::UTF8.GetBytes($patchResult.Text)
+        $patchedBundlePaths.Add($entryInfo.Path)
+      }
+
       break
     }
   }
 
-  if ($null -eq $targetEntry) {
+  if (-not $mainTemplateSeen) {
     throw 'Could not find the Codex main bundle containing the automation developer-instruction template.'
   }
 
-  $patchResult = Get-CodexAutomationDeveloperInstructionPatchResult -SourceText $targetText
+  foreach ($entryInfo in $entries | Where-Object { $_.Path -eq '.vite/build/worker.js' -or $_.Path -like '.vite/build/product-name-*.js' }) {
+    $contentBytes = Get-ByteRange -Bytes $archive.Bytes -Offset ($archive.DataOffset + [int]$entryInfo.Entry.offset) -Length ([int]$entryInfo.Entry.size)
+    $candidateText = [System.Text.Encoding]::UTF8.GetString($contentBytes)
+    $patchResult = Get-CodexAutomationAppContextPatchResult -SourceText $candidateText
 
-  if ($patchResult.Status -eq 'AlreadyPatched') {
+    if ($patchResult.Status -eq 'NotApplicable') {
+      continue
+    }
+
+    $bundlePaths.Add($entryInfo.Path)
+
+    if ($patchResult.Status -eq 'Patched') {
+      $replacementContentByPath[$entryInfo.Path] = [System.Text.Encoding]::UTF8.GetBytes($patchResult.Text)
+      $patchedBundlePaths.Add($entryInfo.Path)
+    }
+  }
+
+  if ($replacementContentByPath.Count -eq 0) {
     if ([System.IO.Path]::GetFullPath($InputAsarPath) -ne [System.IO.Path]::GetFullPath($OutputAsarPath)) {
       Copy-Item -LiteralPath $InputAsarPath -Destination $OutputAsarPath -Force
     }
 
     return [pscustomobject]@{
       Status         = 'AlreadyPatched'
-      BundlePath     = $targetEntry.Path
+      BundlePath     = $mainEntry.Path
+      BundlePaths    = $bundlePaths.ToArray()
       InputAsarPath  = $InputAsarPath
       OutputAsarPath = $OutputAsarPath
     }
   }
 
-  $replacementBytes = [System.Text.Encoding]::UTF8.GetBytes($patchResult.Text)
   $fastPathUsed = $false
+  $canUseFastPath = $true
+  $entryByPath = @{}
 
-  if ($replacementBytes.Length -eq $targetEntry.OriginalSize) {
-    $targetEntry.Entry.integrity = Get-AsarIntegrity -Content $replacementBytes
+  foreach ($entryInfo in $entries) {
+    $entryByPath[$entryInfo.Path] = $entryInfo
+  }
+
+  foreach ($path in $replacementContentByPath.Keys) {
+    $entryInfo = $entryByPath[$path]
+    $replacementBytes = $replacementContentByPath[$path]
+
+    if (($null -eq $entryInfo) -or ($replacementBytes.Length -ne $entryInfo.OriginalSize)) {
+      $canUseFastPath = $false
+      break
+    }
+
+    if (Test-HasProperty -InputObject $entryInfo.Entry -Name 'integrity') {
+      $entryInfo.Entry.integrity = Get-AsarIntegrity -Content $replacementBytes
+    }
+  }
+
+  if ($canUseFastPath) {
     $updatedHeaderJson = ConvertTo-Json -InputObject $archive.Header -Compress -Depth 100
     $updatedHeaderBytes = [System.Text.Encoding]::UTF8.GetBytes($updatedHeaderJson)
 
@@ -609,19 +766,27 @@ function Write-CodexPatchedAsar {
       $updatedArchiveBytes = New-Object byte[] $archive.Bytes.Length
       [Buffer]::BlockCopy($archive.Bytes, 0, $updatedArchiveBytes, 0, $archive.Bytes.Length)
       [Buffer]::BlockCopy($updatedHeaderBytes, 0, $updatedArchiveBytes, 16, $updatedHeaderBytes.Length)
-      [Buffer]::BlockCopy($replacementBytes, 0, $updatedArchiveBytes, ($archive.DataOffset + $targetEntry.OriginalOffset), $replacementBytes.Length)
+
+      foreach ($path in $replacementContentByPath.Keys) {
+        $entryInfo = $entryByPath[$path]
+        $replacementBytes = $replacementContentByPath[$path]
+        [Buffer]::BlockCopy($replacementBytes, 0, $updatedArchiveBytes, ($archive.DataOffset + $entryInfo.OriginalOffset), $replacementBytes.Length)
+      }
+
       [System.IO.File]::WriteAllBytes($OutputAsarPath, $updatedArchiveBytes)
       $fastPathUsed = $true
     }
   }
 
   if (-not $fastPathUsed) {
-    Write-UpdatedAsarFromArchive -Archive $archive -TargetPath $targetEntry.Path -ReplacementContent $replacementBytes -OutputPath $OutputAsarPath
+    Write-UpdatedAsarFromArchiveMap -Archive $archive -ReplacementContentByPath $replacementContentByPath -OutputPath $OutputAsarPath
   }
 
   return [pscustomobject]@{
     Status         = 'Patched'
-    BundlePath     = $targetEntry.Path
+    BundlePath     = $mainEntry.Path
+    BundlePaths    = $bundlePaths.ToArray()
+    PatchedBundles = $patchedBundlePaths.ToArray()
     InputAsarPath  = $InputAsarPath
     OutputAsarPath = $OutputAsarPath
     FastPathUsed   = $fastPathUsed
@@ -733,7 +898,7 @@ function Register-CodexAutopatchTask {
     $dailyTrigger
   )
 
-  $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType InteractiveToken -RunLevel Highest
+  $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Highest
   $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
 
   Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $triggers -Principal $principal -Settings $settings -Force | Out-Null
