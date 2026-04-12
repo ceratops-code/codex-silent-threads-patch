@@ -7,6 +7,16 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'src\CodexDesktopPatcher.psd1') -Force
+. (Join-Path $PSScriptRoot 'PatcherScriptSupport.ps1')
+
+if (-not (Test-IsAdministrator)) {
+  $arguments = @()
+  if ($TaskName) {
+    $arguments += @('-TaskName', (ConvertTo-ProcessArgument -Value $TaskName))
+  }
+
+  Start-ScriptElevated -ScriptPath $PSCommandPath -ArgumentList $arguments
+}
 
 $task = Register-CodexAutopatchTask -PatchScriptPath (Join-Path $PSScriptRoot 'patch-codex.ps1') -TaskName $TaskName
 

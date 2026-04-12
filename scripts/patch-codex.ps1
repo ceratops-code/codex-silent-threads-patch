@@ -10,11 +10,28 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'src\CodexDesktopPatcher.psd1') -Force
+. (Join-Path $PSScriptRoot 'PatcherScriptSupport.ps1')
 
-function Test-IsAdministrator {
-  $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-  $principal = New-Object Security.Principal.WindowsPrincipal($identity)
-  return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+function Get-PatchReinvokeArgumentList {
+  $arguments = @()
+
+  if ($AsarPath) {
+    $arguments += @('-AsarPath', (ConvertTo-ProcessArgument -Value $AsarPath))
+  }
+
+  if ($OutputPath) {
+    $arguments += @('-OutputPath', (ConvertTo-ProcessArgument -Value $OutputPath))
+  }
+
+  if ($BackupDirectory) {
+    $arguments += @('-BackupDirectory', (ConvertTo-ProcessArgument -Value $BackupDirectory))
+  }
+
+  if ($StopCodex.IsPresent) {
+    $arguments += '-StopCodex'
+  }
+
+  return $arguments
 }
 
 function Stop-CodexProcess {
@@ -28,6 +45,10 @@ function Stop-CodexProcess {
   }
 }
 
+if ((-not $AsarPath) -and (-not $OutputPath) -and -not (Test-IsAdministrator)) {
+  Start-ScriptElevated -ScriptPath $PSCommandPath -ArgumentList (Get-PatchReinvokeArgumentList)
+}
+
 if (-not $AsarPath) {
   $installRoot = Get-CodexInstallRoot
   $AsarPath = Get-CodexAppAsarPath -InstallRoot $installRoot
@@ -38,14 +59,10 @@ $windowsAppsRoot = [System.IO.Path]::GetFullPath((Join-Path $env:ProgramFiles 'W
 $patchingInstalledApp = $asarFullPath.StartsWith($windowsAppsRoot, [System.StringComparison]::OrdinalIgnoreCase) -and -not $OutputPath
 
 if ($patchingInstalledApp -and -not (Test-IsAdministrator)) {
-  throw 'In-place patching of the installed Codex app requires an elevated PowerShell session.'
+  Start-ScriptElevated -ScriptPath $PSCommandPath -ArgumentList (Get-PatchReinvokeArgumentList)
 }
 
 if ($StopCodex) {
-  if (-not (Test-IsAdministrator)) {
-    throw 'Stopping the installed Codex processes requires an elevated PowerShell session.'
-  }
-
   Stop-CodexProcess -Confirm:$false
 }
 

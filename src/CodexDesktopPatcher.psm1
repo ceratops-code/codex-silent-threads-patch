@@ -804,11 +804,26 @@ function Get-CodexInstallRoot {
     [string]$WindowsAppsPath = (Join-Path $env:ProgramFiles 'WindowsApps')
   )
 
+  if (Get-Command Get-AppxPackage -ErrorAction SilentlyContinue) {
+    $package = Get-AppxPackage -Name 'OpenAI.Codex' -ErrorAction SilentlyContinue | Sort-Object Version -Descending | Select-Object -First 1
+    if ($package -and $package.InstallLocation) {
+      return $package.InstallLocation
+    }
+  }
+
   try {
     $roots = Get-ChildItem -LiteralPath $WindowsAppsPath -Directory -Filter 'OpenAI.Codex_*' -ErrorAction Stop | Sort-Object Name -Descending
   }
   catch {
-    throw "Unable to enumerate '$WindowsAppsPath'. Run the patcher from an elevated PowerShell session."
+    $processPath = Get-Process Codex -ErrorAction SilentlyContinue |
+      Where-Object { $_.Path -like '*\WindowsApps\OpenAI.Codex_*\app\Codex.exe' } |
+      Select-Object -First 1 -ExpandProperty Path
+
+    if ($processPath) {
+      return Split-Path -Parent (Split-Path -Parent $processPath)
+    }
+
+    throw "Unable to locate the OpenAI.Codex package through AppX metadata, running process metadata, or '$WindowsAppsPath'."
   }
 
   if (-not $roots) {
