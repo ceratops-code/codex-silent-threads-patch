@@ -38,9 +38,22 @@ function Stop-CodexProcess {
   [CmdletBinding(SupportsShouldProcess)]
   param()
 
-  Get-Process Codex, codex -ErrorAction SilentlyContinue | ForEach-Object {
+  $processes = @(Get-Process Codex, codex -ErrorAction SilentlyContinue)
+
+  $processes | ForEach-Object {
     if ($PSCmdlet.ShouldProcess($_.ProcessName, 'Stop process')) {
       $_ | Stop-Process -Force
+    }
+  }
+
+  foreach ($process in $processes) {
+    try {
+      Wait-Process -Id $process.Id -Timeout 30 -ErrorAction Stop
+    }
+    catch {
+      if (Get-Process -Id $process.Id -ErrorAction SilentlyContinue) {
+        throw "Timed out waiting for Codex process $($process.Id) to exit."
+      }
     }
   }
 }
@@ -81,10 +94,14 @@ if ($patchingInstalledApp) {
 }
 
 $result = Write-CodexPatchedAsar -InputAsarPath $asarFullPath -OutputAsarPath $effectiveOutputPath
+$temporaryAclUsed = $false
+$systemTaskUsed = $false
 
 if ($inPlace) {
   if ($result.Status -eq 'Patched') {
-    Copy-Item -LiteralPath $effectiveOutputPath -Destination $asarFullPath -Force
+    $copyResult = Copy-ItemWithAclFallback -Source $effectiveOutputPath -Destination $asarFullPath -AllowTemporaryAcl:$patchingInstalledApp
+    $temporaryAclUsed = $copyResult.TemporaryAclUsed
+    $systemTaskUsed = $copyResult.SystemTaskUsed
   }
 
   Remove-Item -LiteralPath $effectiveOutputPath -Force -ErrorAction SilentlyContinue
@@ -98,4 +115,6 @@ if ($inPlace) {
   OutputPath     = if ($inPlace) { $asarFullPath } else { $effectiveOutputPath }
   FastPathUsed   = $result.FastPathUsed
   PatchedInPlace = $inPlace
+  TemporaryAclUsed = $temporaryAclUsed
+  SystemTaskUsed = $systemTaskUsed
 } | Format-List

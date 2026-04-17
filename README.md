@@ -10,6 +10,7 @@ This repo is self-contained. It uses PowerShell only. It does not require `node`
 - Backs up the current `app.asar`.
 - Reads and rebuilds the `asar` archive directly in PowerShell.
 - Patches the embedded runtime bundles by replacing the hard-coded automation developer-instruction template and app-context inbox guidance.
+- Handles WindowsApps file protection with a narrow write fallback: first temporary ACL adjustment on the single `app.asar`, then a temporary SYSTEM scheduled-task copy if admin copy is still blocked.
 - Restores from backup if needed.
 - Optionally registers a scheduled task to re-run the patch automatically after updates.
 
